@@ -1,0 +1,21 @@
+# .gitignore 
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log
+
+
+*.dockerignore
+# Environment / secrets
+.env
+.env.*.local
+.env.local
+secrets.env
+secrets.yml
+*.pem
+*.key
+*.crt

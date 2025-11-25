@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  movies:
+    build:
+      context: ./movies
+      dockerfile: Dockerfile
+    container_name: movies-service
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGODB_URL=mongodb+srv://giuliagiacomodonato1_db_user:c8Xn0eSPeCydGJGN@cluster0.9cf6z0w.mongodb.net/?appName=Cluster0
+      - DB_NAME=peliculas
+    networks:
+      - microservicios-network
+
+  randommovies:
+    build:
+      context: ./randommovies
+      dockerfile: Dockerfile
+    container_name: randommovies-service
+    restart: always
+    ports:
+      - "3002:3002"
+    environment:
+      - MOVIES_SERVICE_URL=http://movies:3001
+    depends_on:
+      - movies
+    networks:
+      - microservicios-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-service
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - microservicios-network
+
+  calificaciones:
+    build:
+      context: ./Calificaciones
+      dockerfile: Dockerfile
+    container_name: calificaciones-service
+    restart: always
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - QUEUE_NAME=calificaciones_queue
+      - RATINGS_QUEUE_NAME=calificaciones_ratings_queue
+    depends_on:
+      - rabbitmq
+    networks:
+      - microservicios-network
+
+  opiniones:
+    build:
+      context: ./Opiniones
+      dockerfile: Dockerfile
+    container_name: opiniones-service
+    restart: always
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT=3004
+      - MONGODB_URI=mongodb+srv://giuliagiacomodonato1_db_user:c8Xn0eSPeCydGJGN@cluster0.9cf6z0w.mongodb.net/opiniones?appName=Cluster0
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - QUEUE_NAME=calificaciones_queue
+      - RATINGS_QUEUE_NAME=calificaciones_ratings_queue
+    depends_on:
+      - rabbitmq
+    networks:
+      - microservicios-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend-service
+    restart: always
+    ports:
+      - "3000:3000"
+    networks:
+      - microservicios-network
+
+networks:
+  microservicios-network:
+    driver: bridge

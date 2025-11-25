@@ -1,0 +1,274 @@
+:root {
+  --primary-color: #e50914;
+  --background-color: #141414;
+  --text-color: #ffffff;
+  --secondary-text: #b3b3b3;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  background-color: var(--background-color);
+  color: var(--text-color);
+  overflow-x: hidden;
+}
+
+.main-header {
+  display: flex;
+  align-items: center;
+  padding: 20px 4%;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.7) 10%, rgba(0,0,0,0));
+  position: fixed;
+  top: 0;
+  width: 100%;
+  z-index: 1000;
+}
+
+.logo {
+  color: var(--primary-color);
+  font-size: 30px;
+  font-weight: bold;
+  margin-right: 40px;
+}
+
+nav a {
+  color: var(--text-color);
+  text-decoration: none;
+  margin-right: 20px;
+  font-size: 14px;
+  transition: color 0.3s;
+}
+
+nav a:hover {
+  color: var(--secondary-text);
+}
+
+.hero {
+  height: 80vh;
+  background-image: url('https://assets.nflxext.com/ffe/siteui/vlv3/f841d4c7-10e1-40af-bcae-07a3f8dc141a/f6d7434e-d6de-4185-a6d4-c77a2d08737b/US-en-20220502-popsignuptwoweeks-perspective_alpha_website_medium.jpg');
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  padding-left: 4%;
+  position: relative;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to top, var(--background-color) 0%, transparent 50%);
+}
+
+.hero-content {
+  z-index: 10;
+  max-width: 500px;
+}
+
+.hero-content h1 {
+  font-size: 60px;
+  margin-bottom: 20px;
+}
+
+.category {
+  padding: 20px 4%;
+  margin-bottom: 50px;
+}
+
+.category h2 {
+  margin-bottom: 15px;
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+
+.movies-row {
+  display: flex;
+  overflow-x: auto;
+  gap: 10px;
+  padding: 20px 0;
+  scrollbar-width: none;
+}
+
+.movies-row::-webkit-scrollbar {
+  display: none;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.modal-content {
+  background-color: #181818;
+  padding: 20px;
+  border-radius: 8px;
+  width: 80%;
+  max-width: 800px;
+  position: relative;
+  color: white;
+  display: flex;
+  gap: 20px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.close-button {
+  position: absolute;
+  top: 10px;
+  right: 20px;
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 28px;
+  cursor: pointer;
+}
+
+.modal-poster img {
+  width: 300px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.modal-info {
+  flex: 1;
+}
+
+.modal-info h2 {
+  font-size: 2.5rem;
+  margin-bottom: 15px;
+}
+
+.modal-meta {
+  margin-bottom: 15px;
+  color: #bcbcbc;
+  display: flex;
+  gap: 15px;
+}
+
+.modal-genres {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.genre-tag {
+  border: 1px solid #fff;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+
+.modal-rating-section {
+  margin-top: 20px;
+  border-top: 1px solid #333;
+  padding-top: 15px;
+}
+
+/* Carousel Handles */
+.row-container {
+  position: relative;
+}
+
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50px;
+  background-color: rgba(0, 0, 0, 0.5);
+  border: none;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s, background-color 0.3s;
+}
+
+.row-container:hover .handle {
+  opacity: 1;
+}
+
+.handle:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+.handle-left {
+  left: 0;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.handle-right {
+  right: 0;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+/* Skeleton Loading */
+.skeleton-card {
+  flex: 0 0 200px;
+  height: 340px; /* Poster + Text space */
+  background-color: #222;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.skeleton-card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0.05) 20%,
+    rgba(255, 255, 255, 0.1) 60%,
+    rgba(255, 255, 255, 0)
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-poster {
+  width: 100%;
+  height: 300px;
+  background-color: #333;
+}
+
+.skeleton-text {
+  height: 20px;
+  margin: 10px;
+  background-color: #333;
+  border-radius: 4px;
+}
