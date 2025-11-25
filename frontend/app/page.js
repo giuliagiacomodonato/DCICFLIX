@@ -56,14 +56,20 @@ export default function Home() {
           .catch(err => console.error('Error comedy:', err));
 
         // 7. Recommended Movies (Sistema de Recomendación)
-        const userId = localStorage.getItem('dcicflix_user_id') || 'default_user';
+        const userId = 'user_cl954t3ef'; // Usuario único del sistema
         fetch(`http://localhost:3005/recommendations?userId=${userId}&n=10`)
-          .then(res => res.json())
+          .then(res => {
+            if (!res.ok) {
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+          })
           .then(data => {
+            console.log('Recommendations data:', data);
             // Convertir las recomendaciones al formato esperado
-            if (data.recommendations) {
+            if (data.recommendations && Array.isArray(data.recommendations)) {
               const formattedRecs = data.recommendations.map(rec => ({
-                _id: rec._id || rec.movie_id,
+                _id: rec._id?.$oid || rec._id || rec.movie_id,
                 title: rec.title,
                 poster: rec.poster,
                 year: rec.year,
@@ -75,7 +81,11 @@ export default function Home() {
               setRecommendedMovies(formattedRecs);
             }
           })
-          .catch(err => console.error('Error recommendations:', err));
+          .catch(err => {
+            console.error('Error recommendations:', err);
+            // Si falla el recomendador, usar películas populares como fallback
+            setRecommendedMovies([]);
+          });
 
         // Simular un pequeño delay para ver los skeletons (opcional, pero ayuda a UX si es muy rápido)
         setTimeout(() => setLoading(false), 1000);
@@ -100,12 +110,8 @@ export default function Home() {
   };
 
   const sendInteraction = async (movie, type, ratingValue = null) => {
-    // Generar ID de usuario simple si no existe
-    let userId = localStorage.getItem('dcicflix_user_id');
-    if (!userId) {
-      userId = 'user_' + Math.random().toString(36).substr(2, 9);
-      localStorage.setItem('dcicflix_user_id', userId);
-    }
+    // Sistema monousuario - usar ID fijo
+    const userId = 'user_cl954t3ef';
 
     const payload = {
       userId: userId,

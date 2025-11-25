@@ -54,8 +54,10 @@ class MovieRecommender:
         
     def _prepare_data(self):
         """Prepara los datos para el análisis"""
-        # Convertir _id a string
-        self.movies_df['movie_id'] = self.movies_df['_id'].astype(str)
+        # Convertir _id a string - manejar tanto ObjectId como strings
+        self.movies_df['movie_id'] = self.movies_df['_id'].apply(
+            lambda x: str(x) if hasattr(x, '__str__') else x
+        )
         
         # Preparar géneros (convertir lista a string)
         self.movies_df['genres_str'] = self.movies_df['genres'].apply(
@@ -134,16 +136,16 @@ class MovieRecommender:
             rating_stats = pd.DataFrame(columns=['rating_sum', 'rating_count', 'avg_user_rating'])
         
         # Agregar al DataFrame de películas
-        self.movies_df['click_count'] = self.movies_df['movie_id'].map(clicks).fillna(0)
+        self.movies_df['click_count'] = self.movies_df['movie_id'].map(clicks).fillna(0).astype(float)
         self.movies_df['rating_sum'] = self.movies_df['movie_id'].map(
             rating_stats['rating_sum'] if not rating_stats.empty else {}
-        ).fillna(0)
+        ).fillna(0).astype(float)
         self.movies_df['rating_count'] = self.movies_df['movie_id'].map(
             rating_stats['rating_count'] if not rating_stats.empty else {}
-        ).fillna(0)
+        ).fillna(0).astype(float)
         self.movies_df['avg_user_rating'] = self.movies_df['movie_id'].map(
             rating_stats['avg_user_rating'] if not rating_stats.empty else {}
-        ).fillna(0)
+        ).fillna(0).astype(float)
         
         # Calcular score de interacción combinado
         # Fórmula: (clicks * 0.3) + (rating_sum * 0.7)
@@ -165,7 +167,7 @@ class MovieRecommender:
         )
         
         # Si hay ratings de usuarios, combinarlos con IMDb
-        if self.movies_df['rating_count'].sum() > 0:
+        if 'rating_count' in self.movies_df.columns and self.movies_df['rating_count'].sum() > 0:
             # Combinar IMDb rating con user ratings (60% IMDb, 40% usuarios)
             self.movies_df['combined_rating'] = (
                 self.movies_df['imdb_rating'] * 0.6 + 
@@ -178,10 +180,24 @@ class MovieRecommender:
         self.movies_df['imdb_votes'] = self.movies_df['imdb'].apply(
             lambda x: x.get('votes', 0) if isinstance(x, dict) else 0
         )
+        
+        # Convertir a numérico (puede venir como string)
+        self.movies_df['imdb_votes'] = pd.to_numeric(self.movies_df['imdb_votes'], errors='coerce').fillna(0)
+        
+        # Agregar user ratings y clicks si existen (ya deberían estar creados por _calculate_interaction_metrics)
+        user_ratings = self.movies_df['rating_count'] if 'rating_count' in self.movies_df.columns else pd.Series(0, index=self.movies_df.index)
+        user_clicks = self.movies_df['click_count'] if 'click_count' in self.movies_df.columns else pd.Series(0, index=self.movies_df.index)
+        
+        # Asegurar que todo sea numérico
+        if isinstance(user_ratings, pd.Series):
+            user_ratings = pd.to_numeric(user_ratings, errors='coerce').fillna(0)
+        if isinstance(user_clicks, pd.Series):
+            user_clicks = pd.to_numeric(user_clicks, errors='coerce').fillna(0)
+        
         self.movies_df['total_votes'] = (
             self.movies_df['imdb_votes'] + 
-            self.movies_df['rating_count'] + 
-            self.movies_df['click_count']
+            user_ratings + 
+            user_clicks
         )
         
         # Fórmula de rating ponderado (IMDb)

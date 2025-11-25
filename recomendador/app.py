@@ -48,15 +48,27 @@ def get_recommendations_for_user():
         if isinstance(recommendations, str):
             return jsonify({"error": recommendations}), 404
         
-        result = recommendations.to_dict('records')
+        # Obtener los IDs de las películas recomendadas y buscar datos completos
+        movie_ids = recommendations['title'].tolist()
+        full_movies = []
+        
+        for title in movie_ids:
+            movie = recommender.movies_collection.find_one({'title': title})
+            if movie:
+                # Convertir ObjectId a string
+                movie['_id'] = str(movie['_id'])
+                full_movies.append(movie)
         
         return jsonify({
             "userId": user_id,
-            "recommendations": result,
-            "count": len(result)
+            "recommendations": full_movies,
+            "count": len(full_movies)
         })
         
     except Exception as e:
+        print(f"Error en recommendations: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/recommendations/similar/<movie_title>', methods=['GET'])
@@ -132,5 +144,8 @@ def refresh_recommender():
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 3005))
-    print(f"Iniciando API de Recomendaciones en puerto {port}...")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    print(f"Iniciando API de Recomendaciones en puerto {port}...", flush=True)
+    # No pre-inicializar para que el servidor arranque rápido
+    # La inicialización se hará en el primer request
+    print(f"Servidor Flask listo. El recomendador se inicializará en el primer request.", flush=True)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
