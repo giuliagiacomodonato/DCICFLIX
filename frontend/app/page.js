@@ -11,6 +11,7 @@ export default function Home() {
   const [newMovies, setNewMovies] = useState([]);
   const [actionMovies, setActionMovies] = useState([]);
   const [comedyMovies, setComedyMovies] = useState([]);
+  const [recommendedMovies, setRecommendedMovies] = useState([]);
   
   const [selectedMovie, setSelectedMovie] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,28 @@ export default function Home() {
           .then(res => res.json())
           .then(data => setComedyMovies(data))
           .catch(err => console.error('Error comedy:', err));
+
+        // 7. Recommended Movies (Sistema de Recomendación)
+        const userId = localStorage.getItem('dcicflix_user_id') || 'default_user';
+        fetch(`http://localhost:3005/recommendations?userId=${userId}&n=10`)
+          .then(res => res.json())
+          .then(data => {
+            // Convertir las recomendaciones al formato esperado
+            if (data.recommendations) {
+              const formattedRecs = data.recommendations.map(rec => ({
+                _id: rec._id || rec.movie_id,
+                title: rec.title,
+                poster: rec.poster,
+                year: rec.year,
+                genres: rec.genres,
+                plot: rec.plot,
+                imdb: rec.imdb,
+                final_score: rec.final_score
+              }));
+              setRecommendedMovies(formattedRecs);
+            }
+          })
+          .catch(err => console.error('Error recommendations:', err));
 
         // Simular un pequeño delay para ver los skeletons (opcional, pero ayuda a UX si es muy rápido)
         setTimeout(() => setLoading(false), 1000);
@@ -117,6 +140,13 @@ export default function Home() {
           <p>Explora el universo de películas aleatorias...</p>
         </div>
       </section>
+
+      <MovieRow 
+        title="Recomendaciones para ti" 
+        movies={recommendedMovies} 
+        loading={loading} 
+        onMovieClick={handleMovieClick} 
+      />
 
       <MovieRow 
         title="Tendencias (TMDB)" 

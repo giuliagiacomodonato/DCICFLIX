@@ -77,6 +77,22 @@ services:
     networks:
       - microservicios-network
 
+  recomendador:
+    build:
+      context: ./recomendador
+      dockerfile: Dockerfile
+    container_name: recomendador-service
+    restart: always
+    ports:
+      - "3005:3005"
+    environment:
+      - PORT=3005
+      - MONGODB_URL=mongodb+srv://giuliagiacomodonato1_db_user:c8Xn0eSPeCydGJGN@cluster0.9cf6z0w.mongodb.net/?appName=Cluster0
+      - DB_NAME=peliculas
+      - OPINIONES_DB=opiniones
+    networks:
+      - microservicios-network
+
   frontend:
     build:
       context: ./frontend
