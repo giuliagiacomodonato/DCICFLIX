@@ -17,10 +17,17 @@ def init_recommender():
     """Inicializa el recomendador con los datos de MongoDB"""
     global recommender
     if recommender is None:
-        print("Inicializando recomendador...")
-        recommender = MovieRecommender()
-        recommender.load_movies()
-        print("Recomendador listo!")
+        print("Inicializando recomendador...", flush=True)
+        try:
+            recommender = MovieRecommender()
+            # Limitar a 5000 películas para mejor rendimiento
+            recommender.load_movies(limit=5000)
+            print("Recomendador listo!", flush=True)
+        except Exception as e:
+            print(f"Error al inicializar recomendador: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -42,7 +49,8 @@ def get_recommendations_for_user():
         n = int(request.args.get('n', 10))
         
         # Obtener las películas mejor puntuadas que incorporan interacciones
-        recommendations = recommender.get_top_movies(n=n)
+        # Excluyendo las que el usuario ya calificó
+        recommendations = recommender.get_top_movies(n=n, exclude_user_rated=user_id)
         
         # Convertir DataFrame a lista de diccionarios
         if isinstance(recommendations, str):

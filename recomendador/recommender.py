@@ -30,27 +30,44 @@ class MovieRecommender:
         self.indices = None
         self.titles = None
         
-    def load_movies(self):
+    def load_movies(self, limit=None):
         """Carga las películas desde MongoDB y prepara el DataFrame"""
-        print("Cargando películas desde MongoDB...")
-        movies = list(self.movies_collection.find())
+        print("Cargando películas desde MongoDB...", flush=True)
+        
+        # Aplicar límite si se especifica (útil para datasets grandes)
+        if limit:
+            # Obtener películas con rating de IMDb > 6.0 para mejor calidad
+            movies = list(self.movies_collection.find(
+                {"imdb.rating": {"$gte": 6.0}}
+            ).limit(limit))
+        else:
+            movies = list(self.movies_collection.find())
         
         if not movies:
             raise ValueError("No se encontraron películas en la base de datos")
         
+        print(f"Descargadas {len(movies)} películas de MongoDB", flush=True)
+        
         # Convertir a DataFrame
         self.movies_df = pd.DataFrame(movies)
+        print("DataFrame creado", flush=True)
         
         # Limpiar y preparar datos
+        print("Preparando datos...", flush=True)
         self._prepare_data()
+        print("Datos preparados", flush=True)
         
         # Calcular similitud de contenido
+        print("Calculando similitud de contenido...", flush=True)
         self._calculate_content_similarity()
+        print("Similitud calculada", flush=True)
         
         # Calcular métricas de interacción
+        print("Calculando métricas de interacción...", flush=True)
         self._calculate_interaction_metrics()
+        print("Métricas calculadas", flush=True)
         
-        print(f"Películas cargadas: {len(self.movies_df)}")
+        print(f"✓ Películas cargadas: {len(self.movies_df)}", flush=True)
         
     def _prepare_data(self):
         """Prepara los datos para el análisis"""
@@ -88,19 +105,23 @@ class MovieRecommender:
         
     def _calculate_content_similarity(self):
         """Calcula la matriz de similitud por coseno basada en contenido"""
-        print("Calculando similitud de contenido...")
+        print("Creando vectorizador...", flush=True)
         
         count = CountVectorizer(
             analyzer='word',
             ngram_range=(1, 2),
             min_df=0.0,
-            stop_words='english'
+            stop_words='english',
+            max_features=5000  # Limitar features para reducir memoria
         )
         
+        print("Vectorizando contenido...", flush=True)
         count_matrix = count.fit_transform(self.movies_df['soup'])
-        self.cosine_sim = cosine_similarity(count_matrix, count_matrix)
+        print(f"Matriz de características: {count_matrix.shape}", flush=True)
         
-        print("Matriz de similitud calculada.")
+        print("Calculando similitud coseno...", flush=True)
+        self.cosine_sim = cosine_similarity(count_matrix, count_matrix)
+        print(f"Matriz de similitud: {self.cosine_sim.shape}", flush=True)
         
     def _calculate_interaction_metrics(self):
         """Calcula métricas basadas en interacciones de usuarios (clicks y ratings)"""
@@ -286,13 +307,14 @@ class MovieRecommender:
         
         return recommended[available_columns].head(n)
     
-    def get_top_movies(self, genre=None, n=10):
+    def get_top_movies(self, genre=None, n=10, exclude_user_rated=None):
         """
         Obtiene las películas mejor puntuadas (rating ponderado + interacciones)
         
         Args:
             genre: Filtrar por género (opcional)
             n: Número de películas
+            exclude_user_rated: ID de usuario para excluir películas ya calificadas
             
         Returns:
             DataFrame con las mejores películas
@@ -300,6 +322,16 @@ class MovieRecommender:
         self._calculate_weighted_rating()
         
         df = self.movies_df.copy()
+        
+        # Excluir películas ya calificadas por el usuario
+        if exclude_user_rated:
+            user_rated_movies = list(self.opinions_collection.find(
+                {'userId': exclude_user_rated, 'type': 'rating'}
+            ))
+            if user_rated_movies:
+                rated_movie_ids = [movie['movieId'] for movie in user_rated_movies]
+                print(f"Excluyendo {len(rated_movie_ids)} películas ya calificadas por el usuario", flush=True)
+                df = df[~df['movie_id'].isin(rated_movie_ids)]
         
         # Filtrar por género si se especifica
         if genre:
