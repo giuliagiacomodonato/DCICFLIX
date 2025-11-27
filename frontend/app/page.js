@@ -12,6 +12,8 @@ export default function Home() {
   const [actionMovies, setActionMovies] = useState([]);
   const [comedyMovies, setComedyMovies] = useState([]);
   const [recommendedMovies, setRecommendedMovies] = useState([]);
+  const [favoriteGenreMovies, setFavoriteGenreMovies] = useState([]);
+  const [favoriteGenre, setFavoriteGenre] = useState('');
   
   const [selectedMovie, setSelectedMovie] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,14 +45,14 @@ export default function Home() {
           .then(data => setNewMovies(data))
           .catch(err => console.error('Error new:', err));
 
-        // 5. Action Movies
-        fetch('http://localhost:3001/movies/search?genre=Action&limit=10')
+        // 5. Action Movies (Random desde 2000)
+        fetch('http://localhost:3001/movies/search?genre=Action&minYear=2000&random=true&limit=10')
           .then(res => res.json())
           .then(data => setActionMovies(data))
           .catch(err => console.error('Error action:', err));
 
-        // 6. Comedy Movies
-        fetch('http://localhost:3001/movies/search?genre=Comedy&limit=10')
+        // 6. Comedy Movies (Random desde 2000)
+        fetch('http://localhost:3001/movies/search?genre=Comedy&minYear=2000&random=true&limit=10')
           .then(res => res.json())
           .then(data => setComedyMovies(data))
           .catch(err => console.error('Error comedy:', err));
@@ -85,6 +87,37 @@ export default function Home() {
             console.error('Error recommendations:', err);
             // Si falla el recomendador, usar películas populares como fallback
             setRecommendedMovies([]);
+          });
+
+        // 8. Favorite Genre Recommendations
+        fetch(`http://localhost:3005/recommendations/favorite-genre?userId=${userId}&n=10`)
+          .then(res => {
+            if (!res.ok) {
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+          })
+          .then(data => {
+            console.log('Favorite genre data:', data);
+            if (data.genre) {
+              setFavoriteGenre(data.genre);
+            }
+            if (data.recommendations && Array.isArray(data.recommendations)) {
+              const formattedRecs = data.recommendations.map(rec => ({
+                _id: rec._id?.$oid || rec._id || rec.movie_id,
+                title: rec.title,
+                poster: rec.poster,
+                year: rec.year,
+                genres: rec.genres,
+                plot: rec.plot,
+                imdb: rec.imdb
+              }));
+              setFavoriteGenreMovies(formattedRecs);
+            }
+          })
+          .catch(err => {
+            console.error('Error favorite genre:', err);
+            setFavoriteGenreMovies([]);
           });
 
         // Simular un pequeño delay para ver los skeletons (opcional, pero ayuda a UX si es muy rápido)
@@ -153,6 +186,15 @@ export default function Home() {
         loading={loading} 
         onMovieClick={handleMovieClick} 
       />
+
+      {favoriteGenre && favoriteGenreMovies.length > 0 && (
+        <MovieRow 
+          title={`Porque te gusta ${favoriteGenre}`}
+          movies={favoriteGenreMovies} 
+          loading={loading} 
+          onMovieClick={handleMovieClick} 
+        />
+      )}
 
       <MovieRow 
         title="Tendencias (TMDB)" 

@@ -105,6 +105,14 @@ app.get('/movies/search', async (req, res) => {
     if (req.query.sort) {
       const sortOrder = req.query.desc === 'true' ? -1 : 1;
       cursor = cursor.sort({ [req.query.sort]: sortOrder });
+    } else if (req.query.random === 'true') {
+      // Si se pide orden aleatorio, usar sample de MongoDB
+      const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+      const movies = await coll.aggregate([
+        { $match: query },
+        { $sample: { size: limit } }
+      ]).toArray();
+      return res.json(movies);
     }
 
     // Limit

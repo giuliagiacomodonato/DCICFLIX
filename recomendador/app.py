@@ -39,7 +39,7 @@ def get_recommendations_for_user():
     """
     Obtiene recomendaciones personalizadas para un usuario
     Query params:
-    - userId: ID del usuario (opcional)
+    - userId: ID del usuario (requerido)
     - n: Número de recomendaciones (default: 10)
     """
     try:
@@ -48,33 +48,37 @@ def get_recommendations_for_user():
         user_id = request.args.get('userId', 'default_user')
         n = int(request.args.get('n', 10))
         
-        # Obtener las películas mejor puntuadas que incorporan interacciones
-        # Excluyendo las que el usuario ya calificó
-        recommendations = recommender.get_top_movies(n=n, exclude_user_rated=user_id)
+        print(f"Generando recomendaciones para usuario: {user_id}", flush=True)
+        
+        # Obtener recomendaciones PERSONALIZADAS basadas en las calificaciones del usuario
+        recommendations = recommender.get_personalized_recommendations(user_id, n=n)
         
         # Convertir DataFrame a lista de diccionarios
         if isinstance(recommendations, str):
             return jsonify({"error": recommendations}), 404
         
-        # Obtener los IDs de las películas recomendadas y buscar datos completos
-        movie_ids = recommendations['title'].tolist()
+        # Obtener los títulos de las películas recomendadas y buscar datos completos
+        movie_titles = recommendations['title'].tolist()
         full_movies = []
         
-        for title in movie_ids:
+        for title in movie_titles:
             movie = recommender.movies_collection.find_one({'title': title})
             if movie:
                 # Convertir ObjectId a string
                 movie['_id'] = str(movie['_id'])
                 full_movies.append(movie)
         
+        print(f"Retornando {len(full_movies)} recomendaciones personalizadas", flush=True)
+        
         return jsonify({
             "userId": user_id,
             "recommendations": full_movies,
-            "count": len(full_movies)
+            "count": len(full_movies),
+            "personalized": True
         })
         
     except Exception as e:
-        print(f"Error en recommendations: {str(e)}")
+        print(f"Error en recommendations: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -148,6 +152,69 @@ def refresh_recommender():
         init_recommender()
         return jsonify({"status": "success", "message": "Recomendador actualizado"})
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/recommendations/favorite-genre', methods=['GET'])
+def get_favorite_genre_recommendations():
+    """
+    Obtiene recomendaciones del género favorito del usuario
+    Query params:
+    - userId: ID del usuario (requerido)
+    - n: Número de recomendaciones (default: 10)
+    """
+    try:
+        init_recommender()
+        
+        user_id = request.args.get('userId', 'default_user')
+        n = int(request.args.get('n', 10))
+        
+        print(f"Obteniendo género favorito y recomendaciones para usuario: {user_id}", flush=True)
+        
+        # Obtener género favorito y recomendaciones
+        favorite_genre, recommendations = recommender.get_recommendations_by_favorite_genre(user_id, n=n)
+        
+        if not favorite_genre:
+            return jsonify({
+                "userId": user_id,
+                "genre": None,
+                "recommendations": [],
+                "count": 0,
+                "message": "Usuario sin interacciones suficientes"
+            })
+        
+        if recommendations is None or recommendations.empty:
+            return jsonify({
+                "userId": user_id,
+                "genre": favorite_genre,
+                "recommendations": [],
+                "count": 0,
+                "message": f"No hay películas de {favorite_genre} para recomendar"
+            })
+        
+        # Obtener los títulos de las películas recomendadas y buscar datos completos
+        movie_titles = recommendations['title'].tolist()
+        full_movies = []
+        
+        for title in movie_titles:
+            movie = recommender.movies_collection.find_one({'title': title})
+            if movie:
+                # Convertir ObjectId a string
+                movie['_id'] = str(movie['_id'])
+                full_movies.append(movie)
+        
+        print(f"Retornando {len(full_movies)} recomendaciones de {favorite_genre}", flush=True)
+        
+        return jsonify({
+            "userId": user_id,
+            "genre": favorite_genre,
+            "recommendations": full_movies,
+            "count": len(full_movies)
+        })
+        
+    except Exception as e:
+        print(f"Error en favorite-genre: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':

@@ -19,7 +19,7 @@ export default function Modal({ movie, onClose, onRate }) {
           <h2>{movie.title}</h2>
           <div className="modal-meta">
             <span>{movie.year || 'N/A'}</span>
-            <span>{movie.runtime ? `${movie.runtime} min` : 'N/A'}</span>
+            <span>{movie.cast && movie.cast.length > 0 ? movie.cast.slice(0, 2).join(', ') : 'N/A'}</span>
             <span>{movie.imdb?.rating ? `IMDb: ${movie.imdb.rating}` : ''}</span>
           </div>
           

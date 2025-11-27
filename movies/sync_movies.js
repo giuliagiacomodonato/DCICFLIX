@@ -17,7 +17,7 @@ async function fetchMoviesByYear(year) {
   let page = 1;
   let totalPages = 1;
   const results = [];
-  const MAX_PAGES = 50; // cambiá esto si querés más/menos
+  const MAX_PAGES = 10; // 10 páginas x 20 películas = 200 películas por año
 
   do {
     const url = `${TMDB_BASE}/discover/movie`;
@@ -147,7 +147,7 @@ async function main() {
 
   console.log(`Conectado a MongoDB: Base de datos '${dbName}', Colección 'movies'`);
 
-  for (let year = 2024; year <= 2025; year++) {
+  for (let year = 2017; year <= 2025; year++) {
     console.log(`\n=== Importando año ${year} ===`);
     const basicMovies = await fetchMoviesByYear(year);
     console.log(`Películas encontradas (discover): ${basicMovies.length}`);
