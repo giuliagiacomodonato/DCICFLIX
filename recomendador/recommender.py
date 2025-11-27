@@ -36,10 +36,9 @@ class MovieRecommender:
         
         # Aplicar límite si se especifica (útil para datasets grandes)
         if limit:
-            # Obtener películas con rating de IMDb > 6.0 para mejor calidad
-            movies = list(self.movies_collection.find(
-                {"imdb.rating": {"$gte": 6.0}}
-            ).limit(limit))
+            # Cargar TODAS las películas, no solo las de alta calidad
+            # Esto es importante para incluir películas nuevas de TMDB
+            movies = list(self.movies_collection.find().limit(limit))
         else:
             movies = list(self.movies_collection.find())
         
@@ -579,6 +578,92 @@ class MovieRecommender:
         available_columns = [col for col in columns if col in df.columns]
         
         return favorite_genre, df[available_columns].head(n)
+    
+    def get_unfinished_movies(self, user_id, n=10):
+        """
+        Obtiene películas que el usuario clickeó pero no calificó (sin terminar de ver)
+        
+        Args:
+            user_id: ID del usuario
+            n: Número de películas
+            
+        Returns:
+            DataFrame con las películas sin terminar de ver
+        """
+        # Verificar que el DataFrame esté cargado
+        if self.movies_df is None:
+            print("ERROR: movies_df is None. El recomendador no está inicializado.", flush=True)
+            return None
+        
+        print(f"DEBUG: movies_df cargado con {len(self.movies_df)} películas", flush=True)
+        
+        # Obtener películas con clicks del usuario
+        clicked_movies = list(self.opinions_collection.find({
+            'userId': user_id,
+            'type': 'click'
+        }))
+        
+        if not clicked_movies:
+            print(f"Usuario {user_id} no tiene clicks registrados", flush=True)
+            return None
+        
+        print(f"DEBUG: Clicks encontrados: {len(clicked_movies)}", flush=True)
+        print(f"DEBUG: Ejemplo de click: {clicked_movies[0] if clicked_movies else 'N/A'}", flush=True)
+        
+        # Obtener películas calificadas para excluirlas
+        rated_movies = list(self.opinions_collection.find({
+            'userId': user_id,
+            'type': 'rating'
+        }))
+        
+        rated_movie_ids = [movie['movieId'] for movie in rated_movies]
+        print(f"DEBUG: Ratings encontrados: {len(rated_movies)}, IDs: {rated_movie_ids[:5] if rated_movie_ids else 'N/A'}", flush=True)
+        
+        # Filtrar solo las películas clickeadas pero NO calificadas
+        unfinished_movie_ids = [
+            movie['movieId'] for movie in clicked_movies 
+            if movie['movieId'] not in rated_movie_ids
+        ]
+        
+        print(f"DEBUG: Películas sin terminar: {len(unfinished_movie_ids)}, Ejemplos: {unfinished_movie_ids[:3] if unfinished_movie_ids else 'N/A'}", flush=True)
+        
+        if not unfinished_movie_ids:
+            print(f"Usuario {user_id} no tiene películas sin terminar", flush=True)
+            return None
+        
+        # DEBUG: Ver formato de IDs en el DataFrame
+        print(f"DEBUG: Ejemplo movie_id en DataFrame: {self.movies_df['movie_id'].iloc[:5].tolist()}", flush=True)
+        print(f"DEBUG: Total películas en DataFrame: {len(self.movies_df)}", flush=True)
+        
+        # Contar clicks por película para ordenar por las más clickeadas
+        click_counts = {}
+        for movie in clicked_movies:
+            if movie['movieId'] in unfinished_movie_ids:
+                click_counts[movie['movieId']] = click_counts.get(movie['movieId'], 0) + 1
+        
+        # Obtener datos completos de las películas
+        unfinished_movies = self.movies_df[self.movies_df['movie_id'].isin(unfinished_movie_ids)].copy()
+        
+        print(f"DEBUG: Películas encontradas en DataFrame: {len(unfinished_movies)}", flush=True)
+        
+        if unfinished_movies.empty:
+            print(f"No se encontraron películas sin terminar en el dataset", flush=True)
+            return None
+        
+        # Añadir conteo de clicks
+        unfinished_movies['user_clicks'] = unfinished_movies['movie_id'].map(click_counts)
+        
+        # Ordenar por número de clicks (las más clickeadas primero)
+        unfinished_movies = unfinished_movies.sort_values('user_clicks', ascending=False)
+        
+        columns = [
+            'title', 'year', 'genres', 'directors', 'poster',
+            'user_clicks', 'imdb', 'plot'
+        ]
+        
+        available_columns = [col for col in columns if col in unfinished_movies.columns]
+        
+        return unfinished_movies[available_columns].head(n)
     
     def close(self):
         """Cierra la conexión a MongoDB"""

@@ -14,6 +14,7 @@ export default function Home() {
   const [recommendedMovies, setRecommendedMovies] = useState([]);
   const [favoriteGenreMovies, setFavoriteGenreMovies] = useState([]);
   const [favoriteGenre, setFavoriteGenre] = useState('');
+  const [unfinishedMovies, setUnfinishedMovies] = useState([]);
   
   const [selectedMovie, setSelectedMovie] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -120,6 +121,34 @@ export default function Home() {
             setFavoriteGenreMovies([]);
           });
 
+        // 9. Unfinished Movies (clickeadas pero no calificadas)
+        fetch(`http://localhost:3005/recommendations/unfinished?userId=${userId}&n=10`)
+          .then(res => {
+            if (!res.ok) {
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            return res.json();
+          })
+          .then(data => {
+            console.log('Unfinished movies data:', data);
+            if (data.recommendations && Array.isArray(data.recommendations)) {
+              const formattedRecs = data.recommendations.map(rec => ({
+                _id: rec._id?.$oid || rec._id || rec.movie_id,
+                title: rec.title,
+                poster: rec.poster,
+                year: rec.year,
+                genres: rec.genres,
+                plot: rec.plot,
+                imdb: rec.imdb
+              }));
+              setUnfinishedMovies(formattedRecs);
+            }
+          })
+          .catch(err => {
+            console.error('Error unfinished movies:', err);
+            setUnfinishedMovies([]);
+          });
+
         // Simular un pequeño delay para ver los skeletons (opcional, pero ayuda a UX si es muy rápido)
         setTimeout(() => setLoading(false), 1000);
         
@@ -186,6 +215,15 @@ export default function Home() {
         loading={loading} 
         onMovieClick={handleMovieClick} 
       />
+
+      {unfinishedMovies.length > 0 && (
+        <MovieRow 
+          title="Termina de ver"
+          movies={unfinishedMovies} 
+          loading={loading} 
+          onMovieClick={handleMovieClick} 
+        />
+      )}
 
       {favoriteGenre && favoriteGenreMovies.length > 0 && (
         <MovieRow 

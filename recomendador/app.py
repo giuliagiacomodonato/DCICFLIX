@@ -6,20 +6,42 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from recommender import MovieRecommender
 import os
+import threading
 
 app = Flask(__name__)
 CORS(app)
 
 # Instancia global del recomendador
 recommender = None
+init_lock = threading.Lock()
+is_initializing = False
 
 def init_recommender():
     """Inicializa el recomendador con los datos de MongoDB"""
-    global recommender
-    if recommender is None:
-        print("Inicializando recomendador...", flush=True)
+    global recommender, is_initializing
+    
+    # Si ya está inicializado, retornar
+    if recommender is not None and recommender.movies_df is not None:
+        return
+    
+    # Adquirir lock para evitar múltiples inicializaciones concurrentes
+    with init_lock:
+        # Verificar nuevamente dentro del lock por si otro thread ya inicializó
+        if recommender is not None and recommender.movies_df is not None:
+            return
+        
+        # Si otro thread está inicializando, esperar
+        if is_initializing:
+            print("Esperando a que termine la inicialización en curso...", flush=True)
+            # El lock se liberará cuando termine la inicialización
+            return
+        
+        is_initializing = True
+        
         try:
-            recommender = MovieRecommender()
+            print("Inicializando recomendador...", flush=True)
+            if recommender is None:
+                recommender = MovieRecommender()
             # Limitar a 5000 películas para mejor rendimiento
             recommender.load_movies(limit=5000)
             print("Recomendador listo!", flush=True)
@@ -28,6 +50,8 @@ def init_recommender():
             import traceback
             traceback.print_exc()
             raise
+        finally:
+            is_initializing = False
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -44,6 +68,10 @@ def get_recommendations_for_user():
     """
     try:
         init_recommender()
+        
+        # Verificar que el DataFrame esté cargado
+        if recommender is None or recommender.movies_df is None:
+            return jsonify({"error": "Recomendador aún no está listo. Intenta nuevamente en unos segundos."}), 503
         
         user_id = request.args.get('userId', 'default_user')
         n = int(request.args.get('n', 10))
@@ -165,6 +193,10 @@ def get_favorite_genre_recommendations():
     try:
         init_recommender()
         
+        # Verificar que el DataFrame esté cargado
+        if recommender is None or recommender.movies_df is None:
+            return jsonify({"error": "Recomendador aún no está listo. Intenta nuevamente en unos segundos."}), 503
+        
         user_id = request.args.get('userId', 'default_user')
         n = int(request.args.get('n', 10))
         
@@ -213,6 +245,62 @@ def get_favorite_genre_recommendations():
         
     except Exception as e:
         print(f"Error en favorite-genre: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/recommendations/unfinished', methods=['GET'])
+def get_unfinished_movies():
+    """
+    Obtiene películas que el usuario clickeó pero no calificó
+    Query params:
+    - userId: ID del usuario (requerido)
+    - n: Número de películas (default: 10)
+    """
+    try:
+        init_recommender()
+        
+        # Verificar que el DataFrame esté cargado
+        if recommender is None or recommender.movies_df is None:
+            return jsonify({"error": "Recomendador aún no está listo. Intenta nuevamente en unos segundos."}), 503
+        
+        user_id = request.args.get('userId', 'default_user')
+        n = int(request.args.get('n', 10))
+        
+        print(f"Obteniendo películas sin terminar para usuario: {user_id}", flush=True)
+        
+        # Obtener películas sin terminar
+        unfinished = recommender.get_unfinished_movies(user_id, n=n)
+        
+        if unfinished is None or unfinished.empty:
+            return jsonify({
+                "userId": user_id,
+                "recommendations": [],
+                "count": 0,
+                "message": "No hay películas sin terminar"
+            })
+        
+        # Obtener los títulos de las películas y buscar datos completos
+        movie_titles = unfinished['title'].tolist()
+        full_movies = []
+        
+        for title in movie_titles:
+            movie = recommender.movies_collection.find_one({'title': title})
+            if movie:
+                # Convertir ObjectId a string
+                movie['_id'] = str(movie['_id'])
+                full_movies.append(movie)
+        
+        print(f"Retornando {len(full_movies)} películas sin terminar", flush=True)
+        
+        return jsonify({
+            "userId": user_id,
+            "recommendations": full_movies,
+            "count": len(full_movies)
+        })
+        
+    except Exception as e:
+        print(f"Error en unfinished: {str(e)}", flush=True)
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
