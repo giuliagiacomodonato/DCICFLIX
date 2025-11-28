@@ -15,6 +15,7 @@ export default function Home() {
   const [favoriteGenreMovies, setFavoriteGenreMovies] = useState([]);
   const [favoriteGenre, setFavoriteGenre] = useState('');
   const [unfinishedMovies, setUnfinishedMovies] = useState([]);
+  const [featuredMovie, setFeaturedMovie] = useState(null);
   
   const [selectedMovie, setSelectedMovie] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +83,10 @@ export default function Home() {
                 final_score: rec.final_score
               }));
               setRecommendedMovies(formattedRecs);
+              // Usar la primera recomendación como película destacada
+              if (formattedRecs.length > 0) {
+                setFeaturedMovie(formattedRecs[0]);
+              }
             }
           })
           .catch(err => {
@@ -202,10 +207,38 @@ export default function Home() {
 
   return (
     <div>
-      <section className="hero">
+      <section className="hero" style={featuredMovie?.poster ? {
+        backgroundImage: `url(${featuredMovie.poster})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center'
+      } : {}}>
         <div className="hero-content">
-          <h1>Película Destacada</h1>
-          <p>Explora el universo de películas aleatorias...</p>
+          <h1>Te va a gustar</h1>
+          {featuredMovie ? (
+            <>
+              <h2 style={{ fontSize: '3rem', marginBottom: '1rem' }}>{featuredMovie.title}</h2>
+              <p style={{ fontSize: '1.2rem', maxWidth: '600px', margin: '0 auto' }}>
+                {featuredMovie.plot || 'Una película perfecta para ti basada en tus gustos'}
+              </p>
+              <button 
+                onClick={() => handleMovieClick(featuredMovie)}
+                style={{
+                  marginTop: '2rem',
+                  padding: '1rem 2rem',
+                  fontSize: '1.1rem',
+                  backgroundColor: '#e50914',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  color: 'white'
+                }}
+              >
+                Ver detalles
+              </button>
+            </>
+          ) : (
+            <p>Cargando recomendación personalizada...</p>
+          )}
         </div>
       </section>
 

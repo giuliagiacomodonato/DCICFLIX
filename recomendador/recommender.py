@@ -36,9 +36,46 @@ class MovieRecommender:
         
         # Aplicar límite si se especifica (útil para datasets grandes)
         if limit:
-            # Cargar TODAS las películas, no solo las de alta calidad
-            # Esto es importante para incluir películas nuevas de TMDB
-            movies = list(self.movies_collection.find().limit(limit))
+            # Cargar películas de alta calidad + películas con interacciones de usuarios
+            # Primero obtener IDs de películas con interacciones
+            interacted_movie_ids = list(self.opinions_collection.distinct('movieId'))
+            print(f"Películas con interacciones: {len(interacted_movie_ids)}", flush=True)
+            
+            # Cargar películas de alta calidad
+            high_quality_movies = list(self.movies_collection.find(
+                {"imdb.rating": {"$gte": 6.0}, "year": {"$gte": 1986}}
+            ).limit(limit))
+            
+            # Obtener IDs de películas ya cargadas
+            loaded_ids = [str(m['_id']) for m in high_quality_movies]
+            if 'tmdbId' in high_quality_movies[0] if high_quality_movies else {}:
+                loaded_ids.extend([f"tmdb_{m.get('tmdbId')}" for m in high_quality_movies if m.get('tmdbId')])
+            
+            # Cargar películas con interacciones que no estén en el conjunto de alta calidad
+            additional_movie_ids = [mid for mid in interacted_movie_ids if mid not in loaded_ids]
+            
+            if additional_movie_ids:
+                # Convertir IDs de TMDB (tmdb_XXXXX) a números
+                tmdb_ids = [int(mid.replace('tmdb_', '')) for mid in additional_movie_ids if mid.startswith('tmdb_')]
+                mongo_ids = [mid for mid in additional_movie_ids if not mid.startswith('tmdb_')]
+                
+                from bson import ObjectId
+                # Importar películas adicionales por ID
+                additional_movies = []
+                if tmdb_ids:
+                    additional_movies.extend(list(self.movies_collection.find({'tmdbId': {'$in': tmdb_ids}})))
+                if mongo_ids:
+                    # Convertir strings a ObjectId para MongoDB
+                    try:
+                        mongo_object_ids = [ObjectId(mid) for mid in mongo_ids if len(mid) == 24]
+                        additional_movies.extend(list(self.movies_collection.find({'_id': {'$in': mongo_object_ids}})))
+                    except:
+                        pass
+                
+                print(f"Películas adicionales con interacciones: {len(additional_movies)}", flush=True)
+                movies = high_quality_movies + additional_movies
+            else:
+                movies = high_quality_movies
         else:
             movies = list(self.movies_collection.find())
         
@@ -74,6 +111,12 @@ class MovieRecommender:
         self.movies_df['movie_id'] = self.movies_df['_id'].apply(
             lambda x: str(x) if hasattr(x, '__str__') else x
         )
+        
+        # Crear también un ID alternativo para películas de TMDB (si existe tmdbId)
+        if 'tmdbId' in self.movies_df.columns:
+            self.movies_df['tmdb_id'] = self.movies_df['tmdbId'].apply(
+                lambda x: f"tmdb_{x}" if pd.notna(x) else None
+            )
         
         # Preparar géneros (convertir lista a string)
         self.movies_df['genres_str'] = self.movies_df['genres'].apply(
@@ -169,11 +212,11 @@ class MovieRecommender:
         ).fillna(0).astype(float)
         
         # Calcular score de interacción combinado
-        # Fórmula: (clicks * 0.1) + (rating_sum * 0.9)
+        # Fórmula: (clicks * 0.05) + (rating_sum * 0.95)
         # Los ratings tienen mucho más peso que los clicks
         self.movies_df['interaction_score'] = (
-            self.movies_df['click_count'] * 0.1 + 
-            self.movies_df['rating_sum'] * 0.9
+            self.movies_df['click_count'] * 0.05 + 
+            self.movies_df['rating_sum'] * 0.95
         )
         
         print(f"Opiniones procesadas: {len(opinions_df)}")
@@ -182,17 +225,19 @@ class MovieRecommender:
         """Calcula el rating ponderado usando la fórmula de IMDb"""
         # Rating ponderado que combina IMDb rating con user ratings
         
-        # Extraer rating de IMDb
+        # Extraer rating de IMDb y convertir a numérico
         self.movies_df['imdb_rating'] = self.movies_df['imdb'].apply(
             lambda x: x.get('rating', 0) if isinstance(x, dict) else 0
         )
+        # Asegurar que sea numérico (puede venir como string)
+        self.movies_df['imdb_rating'] = pd.to_numeric(self.movies_df['imdb_rating'], errors='coerce').fillna(0)
         
         # Si hay ratings de usuarios, combinarlos con IMDb
         if 'rating_count' in self.movies_df.columns and self.movies_df['rating_count'].sum() > 0:
-            # Combinar IMDb rating con user ratings (10% IMDb, 90% usuarios)
+            # Combinar IMDb rating con user ratings (5% IMDb, 95% usuarios)
             self.movies_df['combined_rating'] = (
-                self.movies_df['imdb_rating'] * 0.1 + 
-                self.movies_df['avg_user_rating'] * 0.9
+                self.movies_df['imdb_rating'] * 0.05 + 
+                self.movies_df['avg_user_rating'] * 0.95
             )
         else:
             self.movies_df['combined_rating'] = self.movies_df['imdb_rating']
@@ -276,7 +321,7 @@ class MovieRecommender:
             self._calculate_weighted_rating()
             recommended['weighted_rating'] = self.movies_df.iloc[book_indices]['weighted_rating'].values
             
-            # Score híbrido: 50% similitud + 30% weighted_rating + 20% interacciones
+            # Score híbrido: 30% similitud + 20% weighted_rating + 50% interacciones
             max_rating = self.movies_df['weighted_rating'].max()
             if max_rating > 0:
                 recommended['rating_norm'] = recommended['weighted_rating'] / max_rating
@@ -284,9 +329,9 @@ class MovieRecommender:
                 recommended['rating_norm'] = 0
                 
             recommended['hybrid_score'] = (
-                recommended['cosine_sim'] * 0.5 +
-                recommended['rating_norm'] * 0.3 +
-                recommended['interaction_norm'] * 0.2
+                recommended['cosine_sim'] * 0.45 +
+                recommended['rating_norm'] * 0.03 +
+                recommended['interaction_norm'] * 0.52
             )
         else:
             # Solo usar similitud de contenido
@@ -331,7 +376,11 @@ class MovieRecommender:
             if user_rated_movies:
                 rated_movie_ids = [movie['movieId'] for movie in user_rated_movies]
                 print(f"Excluyendo {len(rated_movie_ids)} películas ya calificadas por el usuario", flush=True)
-                df = df[~df['movie_id'].isin(rated_movie_ids)]
+                # Excluir por movie_id O tmdb_id
+                if 'tmdb_id' in df.columns:
+                    df = df[~(df['movie_id'].isin(rated_movie_ids) | df['tmdb_id'].isin(rated_movie_ids))]
+                else:
+                    df = df[~df['movie_id'].isin(rated_movie_ids)]
         
         # Filtrar por género si se especifica
         if genre:
@@ -341,8 +390,8 @@ class MovieRecommender:
             return f"No se encontraron películas del género '{genre}'"
         
         # Ordenar por weighted_rating e interaction_score
-        # Dar más peso a las interacciones de usuario (60%) que al weighted_rating (40%)
-        df['final_score'] = df['weighted_rating'] * 0.3 + df['interaction_score'] * 0.7
+        # Dar mucho más peso a las interacciones de usuario (85%) que al weighted_rating (15%)
+        df['final_score'] = df['weighted_rating'] * 0.15 + df['interaction_score'] * 0.85
         df = df.sort_values('final_score', ascending=False)
         
         columns = [
@@ -357,6 +406,7 @@ class MovieRecommender:
     def get_personalized_recommendations(self, user_id, n=10):
         """
         Obtiene recomendaciones personalizadas basadas en las películas que el usuario ha calificado
+        Considera ratings altos (4-5 estrellas) para buscar similares y penaliza películas similares a ratings bajos (1-2 estrellas)
         
         Args:
             user_id: ID del usuario
@@ -365,25 +415,64 @@ class MovieRecommender:
         Returns:
             DataFrame con las películas recomendadas personalizadas
         """
-        # Obtener películas que el usuario ha calificado positivamente (>= 3.5 estrellas)
-        user_ratings = list(self.opinions_collection.find({
+        # Obtener las últimas 15 películas calificadas (todas, no solo positivas)
+        # Ordenar por timestamp para obtener las más recientes primero
+        all_user_ratings = list(self.opinions_collection.find({
             'userId': user_id,
-            'type': 'rating',
-            'rating': {'$gte': 3.5}
-        }).sort('rating', -1).limit(5))  # Top 5 mejores calificadas
+            'type': 'rating'
+        }).sort('timestamp', -1).limit(15))
+        
+        if not all_user_ratings:
+            print(f"Usuario {user_id} no tiene calificaciones. Usando top general.", flush=True)
+            return self.get_top_movies(n=n, exclude_user_rated=user_id)
+        
+        # Separar en películas que le gustaron (>= 3.5) y que NO le gustaron (< 3.5)
+        liked_ratings = [r for r in all_user_ratings if r.get('rating', 0) >= 3.5]
+        disliked_ratings = [r for r in all_user_ratings if r.get('rating', 0) < 3.5]
+        
+        print(f"Películas que le gustaron: {len(liked_ratings)}, que NO le gustaron: {len(disliked_ratings)}", flush=True)
+        
+        # Si no hay películas que le gustaron, usar top general
+        if not liked_ratings:
+            print(f"Usuario {user_id} no tiene calificaciones positivas. Usando top general.", flush=True)
+            return self.get_top_movies(n=n, exclude_user_rated=user_id)
+        
+        user_ratings = liked_ratings  # Usar solo las que le gustaron para buscar similares
         
         if not user_ratings:
             print(f"Usuario {user_id} no tiene calificaciones positivas. Usando top general.", flush=True)
             return self.get_top_movies(n=n, exclude_user_rated=user_id)
         
-        print(f"Generando recomendaciones basadas en {len(user_ratings)} películas del usuario", flush=True)
+        print(f"Generando recomendaciones basadas en las últimas {len(user_ratings)} películas calificadas del usuario", flush=True)
+        if user_ratings:
+            print(f"Películas más recientes: {[r.get('movieTitle', r['movieId'])[:30] for r in user_ratings[:3]]}", flush=True)
         
-        # Obtener títulos de las películas calificadas
+        # Crear un mapa de IDs a ratings con peso temporal (las más recientes tienen más peso)
         rated_movie_ids = [rating['movieId'] for rating in user_ratings]
-        rated_movies = self.movies_df[self.movies_df['movie_id'].isin(rated_movie_ids)]
+        rating_info = {}
+        for idx, rating in enumerate(user_ratings):
+            # Peso temporal: las más recientes (índice 0) tienen peso 1.0, las más antiguas tienen peso decreciente
+            temporal_weight = 1.0 - (idx * 0.05)  # Decremento de 5% por posición
+            if temporal_weight < 0.5:
+                temporal_weight = 0.5  # Mínimo 50% de peso
+            rating_info[rating['movieId']] = {
+                'rating': rating['rating'],
+                'temporal_weight': temporal_weight,
+                'timestamp': rating.get('timestamp')
+            }
+        
+        # Buscar por movie_id O tmdb_id
+        if 'tmdb_id' in self.movies_df.columns:
+            rated_movies = self.movies_df[
+                self.movies_df['movie_id'].isin(rated_movie_ids) | 
+                self.movies_df['tmdb_id'].isin(rated_movie_ids)
+            ]
+        else:
+            rated_movies = self.movies_df[self.movies_df['movie_id'].isin(rated_movie_ids)]
         
         if rated_movies.empty:
             print("No se encontraron películas calificadas en el dataset. Usando top general.", flush=True)
+            print(f"DEBUG: IDs buscados: {rated_movie_ids[:5]}", flush=True)
             return self.get_top_movies(n=n, exclude_user_rated=user_id)
         
         # Obtener recomendaciones basadas en similitud con cada película calificada
@@ -393,6 +482,16 @@ class MovieRecommender:
             try:
                 # Obtener índice de la película
                 idx = self.indices[movie['title']]
+                
+                # Obtener el ID de la película (puede ser movie_id o tmdb_id)
+                source_movie_id = movie['movie_id']
+                if source_movie_id not in rating_info and 'tmdb_id' in movie and pd.notna(movie['tmdb_id']):
+                    source_movie_id = movie['tmdb_id']
+                
+                if source_movie_id not in rating_info:
+                    continue
+                
+                info = rating_info[source_movie_id]
                 
                 # Obtener scores de similitud
                 sim_scores = list(enumerate(self.cosine_sim[idx]))
@@ -408,11 +507,15 @@ class MovieRecommender:
                     if movie_id in rated_movie_ids:
                         continue
                     
+                    # Aplicar peso temporal: las películas similares a las más recientemente calificadas tienen más peso
+                    weighted_score = score * info['temporal_weight']
+                    
                     all_recommendations.append({
                         'index': i,
                         'movie_id': movie_id,
-                        'similarity_score': score,
-                        'source_rating': user_ratings[[r['movieId'] for r in user_ratings].index(movie['movie_id'])]['rating']
+                        'similarity_score': weighted_score,  # Score ya ponderado por recencia
+                        'source_rating': info['rating'],
+                        'temporal_weight': info['temporal_weight']
                     })
             except (KeyError, ValueError) as e:
                 continue
@@ -431,10 +534,44 @@ class MovieRecommender:
             'source_rating': 'mean'
         }).reset_index()
         
+        # PENALIZACIÓN: Calcular similitud con películas que NO le gustaron
+        penalty_scores = {}
+        if disliked_ratings:
+            print(f"Aplicando penalización por {len(disliked_ratings)} películas mal calificadas", flush=True)
+            disliked_movie_ids = [rating['movieId'] for rating in disliked_ratings]
+            
+            # Buscar películas mal calificadas en el DataFrame
+            if 'tmdb_id' in self.movies_df.columns:
+                disliked_movies = self.movies_df[
+                    self.movies_df['movie_id'].isin(disliked_movie_ids) | 
+                    self.movies_df['tmdb_id'].isin(disliked_movie_ids)
+                ]
+            else:
+                disliked_movies = self.movies_df[self.movies_df['movie_id'].isin(disliked_movie_ids)]
+            
+            # Calcular penalización basada en similitud con películas mal calificadas
+            for _, disliked_movie in disliked_movies.iterrows():
+                try:
+                    idx = self.indices[disliked_movie['title']]
+                    
+                    # Para cada película recomendada, calcular similitud con la película mal calificada
+                    for rec_idx in recs_df['index'].values:
+                        similarity_to_disliked = self.cosine_sim[idx][rec_idx]
+                        
+                        # Acumular penalización (cuanto más similar a lo que NO le gustó, más penalización)
+                        if rec_idx not in penalty_scores:
+                            penalty_scores[rec_idx] = 0
+                        penalty_scores[rec_idx] += similarity_to_disliked
+                except (KeyError, ValueError):
+                    continue
+        
         # Obtener datos completos de las películas
         recommended_movies = self.movies_df.iloc[recs_df['index'].values].copy()
         recommended_movies['similarity_score'] = recs_df['similarity_score'].values
         recommended_movies['source_rating'] = recs_df['source_rating'].values
+        
+        # Agregar penalización
+        recommended_movies['penalty'] = [penalty_scores.get(idx, 0) for idx in recs_df['index'].values]
         
         # Calcular weighted rating
         self._calculate_weighted_rating()
@@ -444,17 +581,23 @@ class MovieRecommender:
         max_sim = recommended_movies['similarity_score'].max()
         max_rating = self.movies_df['weighted_rating'].max()
         max_interaction = self.movies_df['interaction_score'].max()
+        max_penalty = recommended_movies['penalty'].max() if recommended_movies['penalty'].max() > 0 else 1
         
         recommended_movies['sim_norm'] = recommended_movies['similarity_score'] / max_sim if max_sim > 0 else 0
         recommended_movies['rating_norm'] = recommended_movies['weighted_rating'] / max_rating if max_rating > 0 else 0
         recommended_movies['interaction_norm'] = recommended_movies['interaction_score'] / max_interaction if max_interaction > 0 else 0
+        recommended_movies['penalty_norm'] = recommended_movies['penalty'] / max_penalty
         
-        # Score personalizado: 60% similitud con películas que le gustaron + 25% weighted rating + 15% interacciones globales
+        # Score personalizado: 70% similitud con películas que le gustaron + 10% weighted rating + 20% interacciones globales - 30% penalización por similitud con lo que NO le gustó
         recommended_movies['personalized_score'] = (
-            recommended_movies['sim_norm'] * 0.6 +
-            recommended_movies['rating_norm'] * 0.25 +
-            recommended_movies['interaction_norm'] * 0.15
+            recommended_movies['sim_norm'] * 0.7 +
+            recommended_movies['rating_norm'] * 0.1 +
+            recommended_movies['interaction_norm'] * 0.2 -
+            recommended_movies['penalty_norm'] * 0.3  # PENALIZACIÓN
         )
+        
+        # Asegurar que el score no sea negativo
+        recommended_movies['personalized_score'] = recommended_movies['personalized_score'].clip(lower=0)
         
         # Ordenar por score personalizado
         recommended_movies = recommended_movies.sort_values('personalized_score', ascending=False)
@@ -472,7 +615,8 @@ class MovieRecommender:
     
     def get_user_favorite_genre(self, user_id):
         """
-        Identifica el género favorito del usuario basado en sus calificaciones e interacciones
+        Identifica el género favorito del usuario basado en sus calificaciones e interacciones RECIENTES
+        Considera ratings altos positivamente y PENALIZA géneros de películas mal calificadas
         
         Args:
             user_id: ID del usuario
@@ -480,10 +624,10 @@ class MovieRecommender:
         Returns:
             String con el género favorito o None
         """
-        # Obtener todas las interacciones del usuario (clicks y ratings)
+        # Obtener las últimas 15 interacciones del usuario ordenadas por timestamp (más recientes primero)
         user_interactions = list(self.opinions_collection.find({
             'userId': user_id
-        }))
+        }).sort('timestamp', -1).limit(15))
         
         if not user_interactions:
             return None
@@ -495,11 +639,15 @@ class MovieRecommender:
         if interacted_movies.empty:
             return None
         
-        # Contar géneros, dando más peso a las calificaciones altas
+        # Contar géneros, dando más peso a las interacciones recientes y calificaciones altas
+        # PENALIZAR géneros de películas mal calificadas
         genre_scores = {}
         
-        for interaction in user_interactions:
+        for idx, interaction in enumerate(user_interactions):
+            # Buscar por movie_id o tmdb_id
             movie = self.movies_df[self.movies_df['movie_id'] == interaction['movieId']]
+            if movie.empty and 'tmdb_id' in self.movies_df.columns:
+                movie = self.movies_df[self.movies_df['tmdb_id'] == interaction['movieId']]
             
             if movie.empty:
                 continue
@@ -507,24 +655,42 @@ class MovieRecommender:
             movie = movie.iloc[0]
             genres = movie['genres'] if isinstance(movie['genres'], list) else []
             
+            # Peso temporal: las interacciones más recientes tienen más peso
+            temporal_weight = 1.0 - (idx * 0.04)  # Decremento de 4% por posición
+            if temporal_weight < 0.4:
+                temporal_weight = 0.4  # Mínimo 40% de peso
+            
             # Calcular peso: ratings valen más que clicks
             if interaction['type'] == 'rating':
-                weight = interaction.get('rating', 3) / 5.0  # Normalizar a 0-1
+                rating = interaction.get('rating', 3)
+                # NUEVO: Si el rating es bajo (< 3.5), el peso es NEGATIVO (penalización)
+                if rating < 3.5:
+                    base_weight = -((3.5 - rating) / 5.0)  # Peso negativo: -0.5 para 1 estrella, -0.3 para 2 estrellas
+                else:
+                    base_weight = rating / 5.0  # Normalizar a 0-1 para ratings positivos
             else:  # click
-                weight = 0.2
+                base_weight = 0.2
+            
+            # Combinar peso base con peso temporal
+            final_weight = base_weight * temporal_weight
             
             # Distribuir el peso entre todos los géneros de la película
             for genre in genres:
                 if genre not in genre_scores:
                     genre_scores[genre] = 0
-                genre_scores[genre] += weight
+                genre_scores[genre] += final_weight
         
         if not genre_scores:
             return None
         
-        # Obtener el género con mayor score
+        # Obtener el género con mayor score (considerando que algunos pueden ser negativos)
         favorite_genre = max(genre_scores, key=genre_scores.get)
-        print(f"Género favorito de {user_id}: {favorite_genre} (score: {genre_scores[favorite_genre]:.2f})", flush=True)
+        print(f"Género favorito de {user_id}: {favorite_genre} (score: {genre_scores[favorite_genre]:.2f}) basado en últimas 15 interacciones", flush=True)
+        
+        # Si el score más alto es negativo, significa que no hay género favorito claro
+        if genre_scores[favorite_genre] <= 0:
+            print(f"Todos los géneros tienen score negativo o cero. No hay género favorito claro.", flush=True)
+            return None
         
         return favorite_genre
     
@@ -554,7 +720,11 @@ class MovieRecommender:
         # Filtrar por género favorito y excluir ya calificadas
         df = self.movies_df.copy()
         df = df[df['genres_str'].str.contains(favorite_genre, case=False, na=False)]
-        df = df[~df['movie_id'].isin(rated_movie_ids)]
+        # Excluir por movie_id O tmdb_id
+        if 'tmdb_id' in df.columns:
+            df = df[~(df['movie_id'].isin(rated_movie_ids) | df['tmdb_id'].isin(rated_movie_ids))]
+        else:
+            df = df[~df['movie_id'].isin(rated_movie_ids)]
         
         if df.empty:
             print(f"No hay películas de {favorite_genre} sin calificar", flush=True)
@@ -565,8 +735,8 @@ class MovieRecommender:
         df['weighted_rating'] = self.movies_df.loc[df.index, 'weighted_rating']
         df['interaction_score'] = self.movies_df.loc[df.index, 'interaction_score']
         
-        # Score combinado: priorizar calidad + interacciones
-        df['genre_score'] = df['weighted_rating'] * 0.8 + df['interaction_score'] * 0.2
+        # Score combinado: priorizar interacciones de usuario sobre calidad
+        df['genre_score'] = df['weighted_rating'] * 0.65 + df['interaction_score'] * 0.35
         df = df.sort_values('genre_score', ascending=False)
         
         columns = [
@@ -635,26 +805,55 @@ class MovieRecommender:
         print(f"DEBUG: Ejemplo movie_id en DataFrame: {self.movies_df['movie_id'].iloc[:5].tolist()}", flush=True)
         print(f"DEBUG: Total películas en DataFrame: {len(self.movies_df)}", flush=True)
         
-        # Contar clicks por película para ordenar por las más clickeadas
+        # Obtener timestamp del último click para cada película
+        last_click_timestamps = {}
         click_counts = {}
         for movie in clicked_movies:
             if movie['movieId'] in unfinished_movie_ids:
                 click_counts[movie['movieId']] = click_counts.get(movie['movieId'], 0) + 1
+                # Guardar el timestamp más reciente
+                if movie['movieId'] not in last_click_timestamps or movie['timestamp'] > last_click_timestamps[movie['movieId']]:
+                    last_click_timestamps[movie['movieId']] = movie['timestamp']
         
-        # Obtener datos completos de las películas
-        unfinished_movies = self.movies_df[self.movies_df['movie_id'].isin(unfinished_movie_ids)].copy()
+        # Obtener datos completos de las películas - buscar por movie_id O tmdb_id
+        if 'tmdb_id' in self.movies_df.columns:
+            unfinished_movies = self.movies_df[
+                self.movies_df['movie_id'].isin(unfinished_movie_ids) | 
+                self.movies_df['tmdb_id'].isin(unfinished_movie_ids)
+            ].copy()
+        else:
+            unfinished_movies = self.movies_df[self.movies_df['movie_id'].isin(unfinished_movie_ids)].copy()
         
         print(f"DEBUG: Películas encontradas en DataFrame: {len(unfinished_movies)}", flush=True)
         
+        # DEBUG: Ver qué IDs NO se encontraron
+        found_ids = unfinished_movies['movie_id'].tolist() if not unfinished_movies.empty else []
+        if 'tmdb_id' in unfinished_movies.columns:
+            found_ids.extend(unfinished_movies['tmdb_id'].dropna().tolist())
+        missing_ids = [uid for uid in unfinished_movie_ids if uid not in found_ids]
+        if missing_ids:
+            print(f"DEBUG: IDs NO encontrados ({len(missing_ids)}): {missing_ids}", flush=True)
+        
         if unfinished_movies.empty:
             print(f"No se encontraron películas sin terminar en el dataset", flush=True)
+            print(f"DEBUG: IDs buscados: {unfinished_movie_ids[:5]}", flush=True)
             return None
         
-        # Añadir conteo de clicks
+        # Añadir conteo de clicks y timestamp del último click
         unfinished_movies['user_clicks'] = unfinished_movies['movie_id'].map(click_counts)
         
-        # Ordenar por número de clicks (las más clickeadas primero)
-        unfinished_movies = unfinished_movies.sort_values('user_clicks', ascending=False)
+        # Mapear timestamp - intentar con movie_id primero, luego con tmdb_id
+        def get_last_timestamp(row):
+            if row['movie_id'] in last_click_timestamps:
+                return last_click_timestamps[row['movie_id']]
+            elif 'tmdb_id' in row and pd.notna(row['tmdb_id']) and row['tmdb_id'] in last_click_timestamps:
+                return last_click_timestamps[row['tmdb_id']]
+            return None
+        
+        unfinished_movies['last_click_timestamp'] = unfinished_movies.apply(get_last_timestamp, axis=1)
+        
+        # Ordenar por timestamp del último click (más reciente primero)
+        unfinished_movies = unfinished_movies.sort_values('last_click_timestamp', ascending=False)
         
         columns = [
             'title', 'year', 'genres', 'directors', 'poster',
