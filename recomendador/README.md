@@ -11,55 +11,6 @@ Sistema de recomendación de películas que combina **similitud de contenido** c
 - **Dataset dinámico**: Carga 5000+ películas de alta calidad + todas las películas con interacciones
 - **Score híbrido personalizado**: Prioriza interacciones de usuario (85%) sobre calidad general (15%)
 
-## Instalación
-
-```bash
-pip install -r requirements.txt
-```
-
-## Uso
-
-### Importar y usar el recomendador
-
-```python
-from recommender import MovieRecommender
-
-# Inicializar
-recommender = MovieRecommender()
-recommender.load_movies()
-
-# Obtener recomendaciones basadas en una película
-recs = recommender.get_recommendations("The Godfather", n=10)
-print(recs)
-
-# Obtener top películas (todas)
-top = recommender.get_top_movies(n=10)
-print(top)
-
-# Obtener top películas por género
-top_drama = recommender.get_top_movies(genre='Drama', n=10)
-print(top_drama)
-
-# Cerrar conexión
-recommender.close()
-```
-
-### Función rápida
-
-```python
-from recommender import get_movie_recommendations
-
-recs = get_movie_recommendations("The Godfather", n=5)
-print(recs)
-```
-
-## Configuración
-
-El sistema lee las siguientes variables de entorno:
-
-- `MONGODB_URL`: URL de conexión a MongoDB
-- `DB_NAME`: Nombre de la base de datos de películas (default: 'peliculas')
-- `OPINIONES_DB`: Nombre de la base de datos de opiniones (default: 'opiniones')
 
 ## Algoritmo y Funcionamiento
 
@@ -171,24 +122,6 @@ Final Score = (Weighted Rating * 0.15) + (Interaction Score * 0.85)
 
 **Prioriza masivamente las interacciones de usuarios (85%) sobre la calidad objetiva (15%).**
 
-### 5. Carga Dinámica de Dataset
-
-El sistema carga:
-1. **5000 películas de alta calidad** (IMDb rating >= 6.0)
-2. **+ Todas las películas con interacciones de usuarios**
-   - Películas de TMDB (formato `tmdb_XXXXX`)
-   - Películas de MongoDB (ObjectId)
-
-Total: ~5027 películas en memoria, garantizando que películas nuevas/clickeadas estén disponibles.
-
-## Endpoints API (Flask)
-
-El servicio Flask expone los siguientes endpoints:
-
-- `GET /health` - Health check del servicio
-- `GET /recommendations?userId={userId}&n={n}` - Recomendaciones personalizadas
-- `GET /recommendations/favorite-genre?userId={userId}&n={n}` - Recomendaciones del género favorito
-- `GET /recommendations/unfinished?userId={userId}&n={n}` - Películas sin terminar
 
 ## Resumen de Ponderaciones
 
@@ -213,50 +146,3 @@ El servicio Flask expone los siguientes endpoints:
 | Ratings usuarios | 95% | Opiniones de usuarios |
 | IMDb rating | 5% | Rating objetivo |
 
-## Ventajas del Sistema
-
-1. **Adaptación continua**: Se actualiza con cada nueva calificación
-2. **Ponderación temporal**: Las preferencias recientes tienen más peso
-3. **Aprendizaje bidireccional**: Aprende de gustos Y disgustos
-4. **Evita repetición**: Excluye películas ya calificadas
-5. **Dataset optimizado**: Carga solo lo necesario (5000+) para rendimiento
-6. **Filtrado inteligente**: Penaliza contenido no deseado en lugar de solo ignorarlo
-7. **Personalización total**: 85-95% de peso en preferencias del usuario vs calidad objetiva
-
-## Estructura de Datos
-
-### Colección Movies (MongoDB)
-```json
-{
-  "_id": "...",
-  "title": "The Godfather",
-  "year": 1972,
-  "genres": ["Crime", "Drama"],
-  "directors": ["Francis Ford Coppola"],
-  "cast": ["Marlon Brando", "Al Pacino", ...],
-  "imdb": {
-    "rating": 9.2,
-    "votes": 1234567
-  }
-}
-```
-
-### Colección Interactions (MongoDB)
-```json
-{
-  "userId": "user_abc123",
-  "movieId": "...",
-  "type": "rating",  // o "click"
-  "rating": 4.5,     // solo para type="rating"
-  "timestamp": "..."
-}
-```
-
-## Ejemplos de Salida
-
-```
-                               title  year              genres  cosine_sim  click_count  rating_count  avg_user_rating  interaction_score  hybrid_score
-The Godfather: Part II              1974      [Crime, Drama]        0.85           45            12              4.2               21.4          0.78
-Goodfellas                          1990      [Crime, Drama]        0.72           32             8              4.5               19.2          0.65
-The Departed                        2006      [Crime, Drama]        0.68           28             6              4.0               16.8          0.61
-```
