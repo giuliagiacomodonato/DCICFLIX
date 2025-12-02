@@ -94,7 +94,7 @@ Microservicio inteligente que genera recomendaciones personalizadas utilizando M
 ## Infraestructura
 
 ### 🗄️ MongoDB Atlas
-- **Base de datos:** `peliculas` (catálogo de ~24,434 películas)
+- **Base de datos:** `peliculas` (catálogo de +5000 películas)
 - **Base de datos:** `opiniones` (interacciones de usuarios)
 - Esquema flexible para datos de películas (IMDb, TMDB, géneros, cast, etc.)
 
