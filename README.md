@@ -86,6 +86,7 @@ Microservicio consumidor que almacena las calificaciones en la base de datos.
 
 ### 🧠 Recomendador (Flask/Python - Port 3005)
 Microservicio inteligente que genera recomendaciones personalizadas utilizando Machine Learning y análisis de similitud.
+(La actualización de las películas recomendadas se hace una vez al levantar la aplicación docker, para ver cambios en estas secciones se deben calificar varias películas y luego volver a levantar la aplicación)
 
 📖 **[Ver documentación completa del Recomendador](./recomendador/README.md)**
 
